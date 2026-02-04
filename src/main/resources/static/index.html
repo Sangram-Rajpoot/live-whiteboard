@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Whiteboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7/bundles/stomp.umd.min.js"></script>
+  <style>
+    :root {
+      --bg-dark: #0f0f23;
+      --toolbar-bg: #1a1a2e;
+      --toolbar-border: #2a2a4e;
+      --accent: #00d9ff;
+      --accent-dim: #0d7377;
+      --danger: #c94b4b;
+      --text: #e8e8e8;
+      --text-dim: #a0a0a0;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .toolbar {
+      flex-shrink: 0;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 1rem;
+      padding: 0.5rem 0.75rem;
+      background: var(--toolbar-bg);
+      border-bottom: 1px solid var(--toolbar-border);
+    }
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .toolbar label {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+    .tool-btn {
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border: 1px solid var(--toolbar-border);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .tool-btn:hover {
+      background: rgba(255,255,255,0.12);
+    }
+    .tool-btn.active {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .tool-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; }
+    input[type="color"] {
+      width: 36px;
+      height: 36px;
+      padding: 2px;
+      border: 1px solid var(--toolbar-border);
+      border-radius: 8px;
+      background: transparent;
+      cursor: pointer;
+    }
+    input[type="range"] {
+      width: 72px;
+      height: 6px;
+      accent-color: var(--accent);
+    }
+    .toolbar span.num { font-size: 0.8rem; min-width: 1.2rem; color: var(--text-dim); }
+    #boardId {
+      width: 180px;
+      max-width: 40vw;
+      padding: 0.4rem 0.5rem;
+      font-size: 0.8rem;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--toolbar-border);
+      border-radius: 6px;
+      color: var(--text);
+    }
+    #boardId::placeholder { color: var(--text-dim); }
+    .btn {
+      padding: 0.4rem 0.7rem;
+      font-size: 0.85rem;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: filter 0.15s;
+    }
+    .btn:hover { filter: brightness(1.1); }
+    .btn-create { background: var(--accent-dim); color: #fff; }
+    .btn-connect { background: #2a2a4e; color: var(--text); }
+    .btn-undo { background: #3d2a2a; color: #f0a0a0; }
+    .btn-clear { background: var(--danger); color: #fff; }
+    #status {
+      margin-left: auto;
+      font-size: 0.75rem;
+      padding: 0.25rem 0.5rem;
+      border-radius: 6px;
+    }
+    #status.connected { background: #1a3d3d; color: #7ee8fa; }
+    #status.disconnected { background: #3d2a2a; color: #f0a0a0; }
+    .canvas-wrap {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 8px;
+    }
+    #canvas {
+      border-radius: 12px;
+      cursor: crosshair;
+      touch-action: none;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="toolbar-group" title="Pen">
+      <button type="button" class="tool-btn active" id="toolPen" data-tool="freehand" aria-label="Pen">
+        <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 15L13 18l5-5z"/></svg>
+      </button>
+    </div>
+    <div class="toolbar-group" title="Line">
+      <button type="button" class="tool-btn" id="toolLine" data-tool="line" aria-label="Line">
+        <svg viewBox="0 0 24 24" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+      </button>
+    </div>
+    <div class="toolbar-group" title="Rectangle">
+      <button type="button" class="tool-btn" id="toolRect" data-tool="rectangle" aria-label="Rectangle">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
+      </button>
+    </div>
+    <div class="toolbar-group" title="Circle">
+      <button type="button" class="tool-btn" id="toolCircle" data-tool="circle" aria-label="Circle">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>
+      </button>
+    </div>
+    <div class="toolbar-group" title="Arrow">
+      <button type="button" class="tool-btn" id="toolArrow" data-tool="arrow" aria-label="Arrow">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </button>
+    </div>
+    <div class="toolbar-group" title="Triangle">
+      <button type="button" class="tool-btn" id="toolTriangle" data-tool="triangle" aria-label="Triangle">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 22h20L12 2z" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div class="toolbar-group" title="Eraser">
+      <button type="button" class="tool-btn" id="toolEraser" data-tool="eraser" aria-label="Eraser">
+        <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M20 20H7L3 16l10-10 7 7-7 7z"/></svg>
+      </button>
+    </div>
+    <div class="toolbar-group">
+      <label for="color">Color</label>
+      <input type="color" id="color" value="#000000" title="Stroke color">
+    </div>
+    <div class="toolbar-group">
+      <label for="bgColor">Bg</label>
+      <input type="color" id="bgColor" value="#ffffff" title="Background">
+    </div>
+    <div class="toolbar-group">
+      <label for="lineWidth">Size</label>
+      <input type="range" id="lineWidth" min="1" max="24" value="2">
+      <span class="num" id="lineWidthVal">2</span>
+    </div>
+    <div class="toolbar-group">
+      <input type="text" id="boardId" placeholder="Board ID">
+      <button type="button" class="btn btn-create" id="createBoardBtn">New board</button>
+      <button type="button" class="btn btn-connect" id="connectBtn">Connect</button>
+      <button type="button" class="btn btn-undo" id="undoBtn">Undo</button>
+      <button type="button" class="btn btn-clear" id="clearBtn">Clear</button>
+    </div>
+    <span id="status" class="disconnected">Disconnected</span>
+  </div>
+  <div class="canvas-wrap">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <script>
+    (function () {
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      const colorInput = document.getElementById('color');
+      const bgColorInput = document.getElementById('bgColor');
+      const lineWidthInput = document.getElementById('lineWidth');
+      const lineWidthVal = document.getElementById('lineWidthVal');
+      const boardIdInput = document.getElementById('boardId');
+      const statusEl = document.getElementById('status');
+
+      let currentTool = 'freehand';
+      // ========by my=======
+      // let lastPoint = null;
+    //  lastPoint = { x: Number, y: Number };
+
+
+      let currentStroke = [];
+      let shapeStart = null;
+      let isDrawing = false;
+      let stompClient = null;
+      let subscribedTopic = null;
+      const authorId = 'user-' + Math.random().toString(36).slice(2, 9);
+      let allStrokes = [];
+      let backgroundColor = '#ffffff';
+function isFreehandTool() {
+  return currentTool === 'freehand' || currentTool === 'eraser';
+}
+
+function isEraser() {
+  return currentTool === 'eraser';
+}
+
+// ========by my=======
+      function setTool(tool) {
+        currentTool = tool;
+        document.querySelectorAll('.tool-btn').forEach(function (btn) {
+          btn.classList.toggle('active', btn.getAttribute('data-tool') === tool);
+        });
+      }
+      document.querySelectorAll('.tool-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () { setTool(btn.getAttribute('data-tool')); });
+      });
+
+      lineWidthInput.addEventListener('input', function () { lineWidthVal.textContent = this.value; });
+      bgColorInput.addEventListener('change', function () {
+        backgroundColor = this.value;
+        drawAll();
+      });
+
+      function resizeCanvas() {
+        const wrap = canvas.parentElement;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const w = Math.max(100, wrap.clientWidth);
+        const h = Math.max(100, wrap.clientHeight);
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        drawAll();
+      }
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+
+      function getCanvasPoint(e) {
+        const rect = canvas.getBoundingClientRect();
+        return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      }
+
+      function strokeColor() {
+        return currentTool === 'eraser' ? backgroundColor : colorInput.value;
+      }
+
+      function drawOneStroke(s) {
+        const pts = s.points || [];
+        const color = s.color || '#000000';
+        const lw = s.lineWidth || 2;
+        const shape = s.shapeType || 'freehand';
+        if (shape !== 'freehand' && pts.length >= 2) {
+          drawShape(ctx, shape, pts, color, lw);
+        } else if (pts.length >= 2) {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = lw;
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+          ctx.stroke();
+        }
+      }
+
+      function drawShape(context, shape, points, color, lineWidth) {
+        context.strokeStyle = color;
+        context.lineWidth = lineWidth;
+        context.beginPath();
+        if (shape === 'triangle' && points.length >= 3) {
+          context.moveTo(points[0].x, points[0].y);
+          context.lineTo(points[1].x, points[1].y);
+          context.lineTo(points[2].x, points[2].y);
+          context.closePath();
+        } else if (points.length < 2) return;
+        else {
+          const p0 = points[0], p1 = points[1];
+          const x0 = p0.x, y0 = p0.y, x1 = p1.x, y1 = p1.y;
+          if (shape === 'line') {
+            context.moveTo(x0, y0);
+            context.lineTo(x1, y1);
+          } else if (shape === 'rectangle') {
+            const x = Math.min(x0, x1), y = Math.min(y0, y1), w = Math.abs(x1 - x0), h = Math.abs(y1 - y0);
+            context.rect(x, y, w, h);
+          } else if (shape === 'circle') {
+            const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+            const r = Math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2) / 2;
+            context.arc(cx, cy, Math.max(1, r), 0, Math.PI * 2);
+          } else if (shape === 'arrow') {
+            context.moveTo(x0, y0);
+            context.lineTo(x1, y1);
+            const angle = Math.atan2(y1 - y0, x1 - x0);
+            const headLen = Math.min(15, lineWidth * 4);
+            context.moveTo(x1, y1);
+            context.lineTo(x1 - headLen * Math.cos(angle - 0.4), y1 - headLen * Math.sin(angle - 0.4));
+            context.moveTo(x1, y1);
+            context.lineTo(x1 - headLen * Math.cos(angle + 0.4), y1 - headLen * Math.sin(angle + 0.4));
+          } else if (shape === 'triangle') {
+            const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+            const dx = (x1 - x0) / 2, dy = (y1 - y0) / 2;
+            context.moveTo(cx - dy, cy + dx);
+            context.lineTo(cx + dy, cy - dx);
+            context.lineTo((x0 + x1) / 2 - (x1 - x0) / 2, (y0 + y1) / 2 - (y1 - y0) / 2);
+            context.closePath();
+          }
+        }
+        context.stroke();
+      }
+
+      function drawAll() {
+        const w = canvas.width / (window.devicePixelRatio || 1);
+        const h = canvas.height / (window.devicePixelRatio || 1);
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, w, h);
+        allStrokes.forEach(drawOneStroke);
+        if (shapeStart && currentStroke.length >= 1) {
+          var pts = [shapeStart].concat(currentStroke);
+          drawShape(ctx, currentTool === 'eraser' ? 'freehand' : currentTool, pts.length >= 2 ? (currentTool === 'freehand' ? pts : [shapeStart, pts[pts.length - 1]]) : [shapeStart, shapeStart], strokeColor(), Number(lineWidthInput.value));
+        }
+      }
+
+      function pointsForShape(tool, start, end) {
+        if (tool === 'line' || tool === 'rectangle' || tool === 'circle' || tool === 'arrow') {
+          return [start, end];
+        }
+        if (tool === 'triangle') {
+          const cx = (start.x + end.x) / 2, cy = (start.y + end.y) / 2;
+          const dx = (end.x - start.x) / 2, dy = (end.y - start.y) / 2;
+          return [
+            { x: cx - dy, y: cy + dx },
+            { x: cx + dy, y: cy - dx },
+            { x: (start.x + end.x) / 2 - (end.x - start.x) / 2, y: (start.y + end.y) / 2 - (end.y - start.y) / 2 }
+          ];
+        }
+        return currentStroke;
+      }
+
+      function sendStroke(shapeType, points) {
+        if (!stompClient || !subscribedTopic) return;
+        const boardId = boardIdInput.value.trim();
+        if (!boardId) return;
+        if (points.length < 2 && shapeType === 'freehand') return;
+        if (points.length < 1) return;
+        var toSend = points;
+        if (shapeType !== 'freehand' && shapeType !== 'eraser' && points.length === 2) toSend = points;
+        else if (shapeType === 'triangle' && points.length === 3) toSend = points;
+        else if (shapeType === 'freehand' || shapeType === 'eraser') toSend = points;
+        stompClient.publish({
+          destination: '/app/whiteboard/' + boardId + '/stroke',
+          body: JSON.stringify({
+            color: strokeColor(),
+            lineWidth: Number(lineWidthInput.value),
+            shapeType: shapeType === 'eraser' ? 'freehand' : shapeType,
+            points: toSend,
+            authorId: authorId
+          })
+        });
+      }
+
+      // function startDrawing(x, y) {
+      //   isDrawing = true;
+      //   if (currentTool === 'freehand' || currentTool === 'eraser') {
+      //     currentStroke = [{ x, y }];
+      //     shapeStart = null;
+      //   } else {
+      //     shapeStart = { x, y };
+      //     currentStroke = [];
+      //   }
+      // }
+      function startDrawing(x, y) {
+  isDrawing = true;
+
+  if (isFreehandTool()) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+
+    ctx.strokeStyle = isEraser()
+      ? backgroundColor
+      : colorInput.value;
+
+    ctx.lineWidth = Number(lineWidthInput.value) * (isEraser() ? 2 : 1);
+
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    currentStroke = [{ x, y }];
+  } else {
+    shapeStart = { x, y };
+    currentStroke = [];
+  }
+}
+
+
+
+// ========by my=======
+      // function addPoint(x, y) {
+      //   if (!isDrawing) return;
+      //   if (currentTool === 'freehand' || currentTool === 'eraser') {
+      //     currentStroke.push({ x, y });
+      //     drawAll();
+      //   } else {
+      //     currentStroke = [{ x, y }];
+      //     drawAll();
+      //   }
+      // }
+      function addPoint(x, y) {
+  if (!isDrawing) return;
+
+  if (isFreehandTool()) {
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    currentStroke.push({ x, y });
+  } else {
+    currentStroke = [{ x, y }]; // shape preview end
+    drawAll(); // redraw board + preview
+  }
+}
+
+
+// ========by my=======
+      // function endDrawing() {
+      //   if (!isDrawing) return;
+      //   isDrawing = false;
+      //   if (currentTool === 'freehand' || currentTool === 'eraser') {
+      //     if (currentStroke.length >= 2) sendStroke(currentTool === 'eraser' ? 'freehand' : 'freehand', currentStroke);
+      //     currentStroke = [];
+      //     shapeStart = null;
+      //   } else {
+      //     if (shapeStart && currentStroke.length >= 1) {
+      //       var end = currentStroke[currentStroke.length - 1];
+      //       var pts = currentTool === 'triangle' ? pointsForShape('triangle', shapeStart, end) : [shapeStart, end];
+      //       sendStroke(currentTool, pts);
+      //     }
+      //     shapeStart = null;
+      //     currentStroke = [];
+      //   }
+      //   drawAll();
+      // }
+      function endDrawing() {
+  if (!isDrawing) return;
+  isDrawing = false;
+
+  if (isFreehandTool()) {
+    ctx.closePath();
+    ctx.restore();
+
+    if (currentStroke.length >= 2) {
+      const stroke = {
+  points: currentStroke,
+  color: isEraser() ? backgroundColor : colorInput.value,
+  lineWidth: Number(lineWidthInput.value) * (isEraser() ? 2 : 1),
+  shapeType: 'freehand'
+};
+
+
+      allStrokes.push(stroke);
+      sendStroke('freehand', currentStroke);
+    }
+
+    currentStroke = [];
+  } else {
+    if (shapeStart && currentStroke.length) {
+      const end = currentStroke[0];
+      const pts =
+        currentTool === 'triangle'
+          ? pointsForShape('triangle', shapeStart, end)
+          : [shapeStart, end];
+
+          const stroke = {
+  points: pts,
+  color: colorInput.value,
+  lineWidth: Number(lineWidthInput.value),
+  shapeType: currentTool
+};
+// const stroke = {
+//   id: generateId(), // ✅ unique id
+//   points: currentStroke,
+//   color: isEraser() ? backgroundColor : colorInput.value,
+//   lineWidth: Number(lineWidthInput.value) * (isEraser() ? 2 : 1),
+//   shapeType: 'freehand'
+// };
+
+
+      allStrokes.push(stroke);
+      sendStroke(currentTool, pts);
+    }
+
+    shapeStart = null;
+    currentStroke = [];
+    drawAll();
+  }
+}
+
+
+// ========by my=======
+      canvas.addEventListener('mousedown', function (e) { e.preventDefault(); startDrawing(getCanvasPoint(e).x, getCanvasPoint(e).y); });
+      canvas.addEventListener('mousemove', function (e) { addPoint(getCanvasPoint(e).x, getCanvasPoint(e).y); });
+      canvas.addEventListener('mouseup', endDrawing);
+      canvas.addEventListener('mouseleave', endDrawing);
+      canvas.addEventListener('touchstart', function (e) {
+        e.preventDefault();
+        var t = e.touches[0];
+        var p = getCanvasPoint(t);
+        startDrawing(p.x, p.y);
+      }, { passive: false });
+      canvas.addEventListener('touchmove', function (e) {
+        e.preventDefault();
+        addPoint(getCanvasPoint(e.touches[0]).x, getCanvasPoint(e.touches[0]).y);
+      }, { passive: false });
+      canvas.addEventListener('touchend', function (e) { e.preventDefault(); endDrawing(); }, { passive: false });
+
+      function setStatus(connected) {
+        statusEl.textContent = connected ? 'Connected' : 'Disconnected';
+        statusEl.className = connected ? 'connected' : 'disconnected';
+      }
+
+      function doConnect(boardId) {
+        if (stompClient && stompClient.connected) {
+          if (subscribedTopic) stompClient.unsubscribe(subscribedTopic);
+          stompClient.deactivate();
+          stompClient = null;
+          setStatus(false);
+        }
+        var socket = new SockJS(window.location.origin + '/ws');
+        stompClient = new StompJs.Client({ webSocketFactory: function () { return socket; } });
+        stompClient.onConnect = function () {
+          setStatus(true);
+          subscribedTopic = stompClient.subscribe('/topic/whiteboard/' + boardId, function (msg) {
+            try {
+              var body = JSON.parse(msg.body);
+              if (body.type === 'STROKE_ADDED' && body.payload) {
+                allStrokes.push(body.payload);
+                drawAll();
+              } else if (body.type === 'STROKE_REMOVED' && body.payload) {
+                var id = typeof body.payload === 'string' ? body.payload : body.payload.id;
+                allStrokes = allStrokes.filter(function (s) { return s.id !== id; });
+                drawAll();
+              } else if (body.type === 'BOARD_CLEARED') {
+                allStrokes = [];
+                drawAll();
+              }
+            } catch (err) { console.error(err); }
+          });
+          fetch(window.location.origin + '/api/whiteboards/' + boardId)
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (board) {
+              if (board && board.strokes) { allStrokes = board.strokes; drawAll(); }
+            })
+            .catch(function (err) { console.error(err); });
+        };
+        stompClient.onStompError = function (frame) { console.error(frame); setStatus(false); };
+        stompClient.onWebSocketClose = function () { setStatus(false); };
+        stompClient.activate();
+      }
+
+      document.getElementById('createBoardBtn').addEventListener('click', async function () {
+        try {
+          var res = await fetch(window.location.origin + '/api/whiteboards', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'My Whiteboard' })
+          });
+          if (!res.ok) throw new Error('Failed: ' + res.status);
+          var board = await res.json();
+          boardIdInput.value = board.id;
+          doConnect(board.id);
+        } catch (err) { alert('Server not running? ' + err.message); }
+      });
+
+      connectBtn.addEventListener('click', function () {
+        var boardId = boardIdInput.value.trim();
+        if (!boardId) { alert('Enter Board ID or click New board'); return; }
+        if (stompClient && stompClient.connected) {
+          if (subscribedTopic) stompClient.unsubscribe(subscribedTopic);
+          stompClient.deactivate();
+          stompClient = null;
+          setStatus(false);
+          return;
+        }
+        doConnect(boardId);
+      });
+
+      document.getElementById('undoBtn').addEventListener('click', function () {
+        if (allStrokes.length === 0 || !stompClient || !stompClient.connected) return;
+        var boardId = boardIdInput.value.trim();
+        if (!boardId) return;
+        var last = allStrokes[allStrokes.length - 1];
+        stompClient.publish({
+          destination: '/app/whiteboard/' + boardId + '/stroke/remove',
+          body: JSON.stringify({ strokeId: last.id })
+        });
+      });
+
+      document.getElementById('clearBtn').addEventListener('click', function () {
+        if (!stompClient || !stompClient.connected) return;
+        var boardId = boardIdInput.value.trim();
+        if (!boardId) return;
+        if (!confirm('Clear entire board?')) return;
+        stompClient.publish({
+          destination: '/app/whiteboard/' + boardId + '/clear',
+          body: JSON.stringify({})
+        });
+      });
+
+      var params = new URLSearchParams(window.location.search);
+      if (params.get('board')) boardIdInput.value = params.get('board');
+    })();
+  </script>
+</body>
+</html>
