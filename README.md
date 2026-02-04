@@ -9,10 +9,10 @@ The project also demonstrates **AI-assisted development workflows** using tools 
 ## 🔗 Project Links
 
 - **GitHub Repository:**  
-  👉 https://github.com/YOUR_USERNAME/live-whiteboard
+  👉 [https://github.com/YOUR_USERNAME/live-whiteboard](https://github.com/Sangram-Rajpoot/live-whiteboard/)
 
 - **Live Deployed App (Render):**  
-  👉 https://your-app-name.onrender.com
+  👉 [https://your-app-name.onrender.com](https://live-whiteboard-r0aj.onrender.com/)
 
 - **Database (Aiven – PostgreSQL):**  
   Hosted and managed PostgreSQL database
