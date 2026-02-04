@@ -1,100 +1,105 @@
-# Live Whiteboard
+# 🧠 Live Collaborative Whiteboard (AI-Assisted)
 
-Real-time collaborative whiteboard: draw on a shared canvas, see strokes sync across browsers, and persist everything in MySQL.
-
----
-
-## Prerequisites
-
-- **Java 17**
-- **MySQL** (e.g. 8.x) running locally
-- **Maven** (or use the included wrapper `mvnw` / `mvnw.cmd`)
+A **real-time collaborative whiteboard application** built using **Java Spring Boot**, **WebSockets**, and **PostgreSQL**, where multiple users can draw simultaneously on a shared canvas.  
+All drawing actions are synchronized in real time and persisted in the database.  
+The project also demonstrates **AI-assisted development workflows** using tools like **Cursor / Anti-Gravity AI**.
 
 ---
 
-## 1. Database setup
+## 🔗 Project Links
 
-1. Start MySQL.
-2. Create a database named `whiteboard`:
-   ```sql
-   CREATE DATABASE whiteboard;
-   ```
-3. In `src/main/resources/application.properties`, set your MySQL username and password:
-   ```properties
-   spring.datasource.username=root
-   spring.datasource.password=YOUR_PASSWORD
-   ```
-   (Update the URL/host/port if MySQL is not on `localhost:3306`.)
+- **GitHub Repository:**  
+  👉 https://github.com/YOUR_USERNAME/live-whiteboard
+
+- **Live Deployed App (Render):**  
+  👉 https://your-app-name.onrender.com
+
+- **Database (Aiven – PostgreSQL):**  
+  Hosted and managed PostgreSQL database
 
 ---
 
-## 2. Run the application
+## ✨ Features
 
-From the project root:
-
-**Windows (PowerShell / CMD):**
-```bash
-.\mvnw.cmd spring-boot:run
-```
-
-**Linux / macOS:**
-```bash
-./mvnw spring-boot:run
-```
-
-Wait until you see something like: `Started LiveWhiteboardApplication`. The app runs on **port 8081** by default.
+- 🎨 Real-time drawing on a shared canvas
+- 👥 Multiple participants on the same board
+- 🔄 Instant stroke synchronization using WebSockets
+- 💾 Persistent storage of boards and strokes (PostgreSQL)
+- 🔗 Join board via Board ID or URL
+- ☁️ Deployed backend (Render)
+- 🤖 AI-assisted development (Cursor / Anti-Gravity)
 
 ---
 
-## 3. Use the whiteboard in the browser
+## 🏗️ High-Level Architecture
 
-1. Open a browser and go to:
-   ```
-   http://localhost:8081
-   ```
-2. **Create a board** (required for saving to the database):
-   - Click **"Create new board"**.
-   - A new board is created in MySQL and you are connected automatically.
-   - The status should show **Connected**.
-3. **Draw** on the white canvas with mouse or touch. Each stroke is saved to the database and broadcast to everyone on the same board.
-4. **Optional:** Change **Color** and **Width** in the toolbar before drawing.
-5. **Collaboration:** Open another tab (or another device) and go to `http://localhost:8081`. Paste the same **Board ID** from the first tab, click **Connect**, and draw. You’ll see strokes from both tabs in real time.
 
----
+### Architecture Explanation (Simple)
 
-## Quick reference
+- **Frontend**
+  - HTML Canvas for drawing
+  - JavaScript captures mouse/touch events
+  - WebSocket connection for real-time sync
 
-| What you want to do        | How |
-|----------------------------|-----|
-| Start drawing and save to DB | Click **Create new board**, then draw. |
-| Join an existing board     | Paste the board UUID into **Board ID**, click **Connect**. |
-| Share a board with someone | Send them the **Board ID** (UUID); they paste it and click **Connect**. |
-| Use a specific board from URL | Open `http://localhost:8081?board=YOUR-UUID-HERE`. |
+- **Backend (Spring Boot)**
+  - REST APIs for board creation & loading
+  - WebSocket server for live collaboration
+  - JPA for database operations
+
+- **Database**
+  - PostgreSQL stores boards and strokes
+  - Ensures drawings persist even after refresh or reconnect
 
 ---
 
-## API (optional)
+## 🔌 WebSocket Flow (Real-Time Sync)
 
-- **Create a board:**  
-  `POST http://localhost:8081/api/whiteboards`  
-  Body: `{"name": "My Board"}`  
-  Response: `{ "id": "...", "name": "...", "createdAt": "...", "strokes": [] }`
+1. User opens a whiteboard in the browser
+2. Browser establishes a **WebSocket connection**
+3. When a user draws:
+   - Stroke data (x, y, color, width) is sent to server
+4. Server:
+   - Saves the stroke in PostgreSQL
+   - Broadcasts it to all connected users on the same board
+5. Other users instantly see the drawing
 
-- **List boards:**  
-  `GET http://localhost:8081/api/whiteboards`
-
-- **Get one board (with strokes):**  
-  `GET http://localhost:8081/api/whiteboards/{id}`
+### Why WebSockets?
+- Low latency
+- Bi-directional communication
+- Perfect for real-time collaboration apps
 
 ---
 
-## Troubleshooting
+## 🗄️ Database Design (PostgreSQL)
 
-- **"Disconnected" or strokes not saving**  
-  Click **Create new board** first so a board exists in the DB and you are connected. Only then are strokes sent to the server and stored in MySQL.
+### 1️⃣ `whiteboards` table
 
-- **"Could not create board"**  
-  Check that the app is running (port 8081) and that MySQL is running and the `whiteboard` database exists. Check `application.properties` for correct username/password.
+| Column       | Type        | Description |
+|-------------|-------------|-------------|
+| id          | UUID (PK)   | Unique board ID |
+| name        | VARCHAR     | Board name |
+| created_at | TIMESTAMP   | Creation time |
 
-- **Database tables**  
-  Tables `whiteboards` and `strokes` are created automatically on first run (`spring.jpa.hibernate.ddl-auto=update`). Ensure the MySQL user has rights to create/update schema.
+### 2️⃣ `strokes` table
+
+| Column       | Type        | Description |
+|-------------|-------------|-------------|
+| id          | UUID (PK)   | Stroke ID |
+| board_id   | UUID (FK)   | Linked whiteboard |
+| x           | FLOAT       | X coordinate |
+| y           | FLOAT       | Y coordinate |
+| color       | VARCHAR     | Stroke color |
+| width       | INT         | Stroke width |
+| created_at | TIMESTAMP   | Draw time |
+
+### Database Planning Rationale
+
+- **One board → many strokes**
+- Normalized structure
+- Easy to replay strokes when a user reconnects
+- Scales well for multiple users and boards
+
+---
+
+## 📂 Project Structure Explained
+
