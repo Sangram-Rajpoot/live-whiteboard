@@ -103,3 +103,16 @@ The project also demonstrates **AI-assisted development workflows** using tools 
 
 ## 📂 Project Structure Explained
 
+rc/main/java
+└── live.whiteboard.whiteboard
+├── config # WebSocket & CORS configuration
+├── controller # REST & WebSocket controllers
+├── domain # JPA entities (Whiteboard, Stroke)
+├── repository # Spring Data JPA repositories
+├── service # Business logic
+└── LiveWhiteboardApplication.java
+
+src/main/resources
+├── static # Frontend (HTML, JS, CSS)
+├── templates 
+└── application.properties
